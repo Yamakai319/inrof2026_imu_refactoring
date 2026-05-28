@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,7 +37,9 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define R 30//mm  //radious of wheel
+#define PPR 2000 //pulses per revolution
+#define CONV M_PI / 180.0f // 度/秒 を ラジアン/秒 に変換する時に掛ける
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -49,7 +52,27 @@ TIM_HandleTypeDef htim6;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+uint8_t whoami, whoami2, whoami3;
+float gyro_x, gyro_y, gyro_z;
+float accel_x, accel_y, accel_z;
+float gyro_x1, gyro_y1, gyro_z1;
+float gyro_x2, gyro_y2, gyro_z2;
+float gyro_x3, gyro_y3, gyro_z3;
+float accel_x1, accel_y1, accel_z1;
+float accel_x2, accel_y2, accel_z2;
+float accel_x3, accel_y3, accel_z3;
+double gyro_x_bias = 0.0f;
+double gyro_y_bias = 0.0f;
+double gyro_z_bias = 0.0f;
+const float G_sensitivity = 0.070f;
+const float A_sensitivity = 0.488f;
+float cos_30, sin_30;
+float q[4] = {1.0f, 0.0f, 0.0f, 0.0f}; //クォータニオン (w, x, y ,z)
+float beta = 0.1f; //Madgwickフィルタのゲイン
+float roll, pitch, yaw;
+float dt = 0.001f;
+GPIO_TypeDef* const IMU_CS_PORTS[3] = {IMU1_CS_GPIO_Port, IMU2_CS_GPIO_Port, IMU3_CS_GPIO_Port};
+const uint16_t IMU_CS_PINS[3]       = {IMU1_CS_Pin, IMU2_CS_Pin, IMU3_CS_Pin};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -60,12 +83,79 @@ static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
+void LSM6_Write(uint8_t reg, uint8_t data, int port);
+void LSM6_ReadMulti(uint8_t reg, uint8_t* pData, uint16_t size, int port);
+uint8_t LSM6_Read(uint8_t reg, int port);
+void INIT_IMU(int port);
+float invSqrt(float x);
+void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, float az, float dt);
+void getEulerAngles();
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int _write(int file,char *ptr,int len)
+{
+  HAL_UART_Transmit(&huart2, (uint8_t*)ptr, len, 10);
+  return len;
+}
 
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+	if (&htim6 == htim) { // 1000Hz
+    
+    whoami = LSM6_Read(0x0F,1);
+    whoami2 = LSM6_Read(0x0F,2);
+    whoami3 = LSM6_Read(0x0F,3);
+
+    uint8_t buffer[12];
+    LSM6_ReadMulti(0x22, buffer, 12, 1); // IMU1:一括読み出し
+    gyro_x1 = ((int16_t)(buffer[1] << 8 | buffer[0])) * G_sensitivity;
+    gyro_y1 = ((int16_t)(buffer[3] << 8 | buffer[2])) * G_sensitivity;
+    gyro_z1 = ((int16_t)(buffer[5] << 8 | buffer[4])) * G_sensitivity;
+    accel_x1 = ((int16_t)(buffer[7] << 8 | buffer[6])) * A_sensitivity;
+    accel_y1 = ((int16_t)(buffer[9] << 8 | buffer[8])) * A_sensitivity;
+    accel_z1 = ((int16_t)(buffer[11] << 8 | buffer[10])) * A_sensitivity;
+
+    LSM6_ReadMulti(0x22, buffer, 12, 2); // IMU2:一括読み出し
+    gyro_x2 = ((int16_t)(buffer[1] << 8 | buffer[0])) * G_sensitivity;
+    gyro_y2 = ((int16_t)(buffer[3] << 8 | buffer[2])) * G_sensitivity;
+    gyro_z2 = ((int16_t)(buffer[5] << 8 | buffer[4])) * G_sensitivity;
+    accel_x2 = ((int16_t)(buffer[7] << 8 | buffer[6])) * A_sensitivity;
+    accel_y2 = ((int16_t)(buffer[9] << 8 | buffer[8])) * A_sensitivity;
+    accel_z2 = ((int16_t)(buffer[11] << 8 | buffer[10])) * A_sensitivity;
+
+    LSM6_ReadMulti(0x22, buffer, 12, 3); // IMU3:一括読み出し
+    gyro_x3 = ((int16_t)(buffer[1] << 8 | buffer[0])) * G_sensitivity;
+    gyro_y3 = ((int16_t)(buffer[3] << 8 | buffer[2])) * G_sensitivity;
+    gyro_z3 = ((int16_t)(buffer[5] << 8 | buffer[4])) * G_sensitivity;
+    accel_x3 = ((int16_t)(buffer[7] << 8 | buffer[6])) * A_sensitivity;
+    accel_y3 = ((int16_t)(buffer[9] << 8 | buffer[8])) * A_sensitivity;
+    accel_z3 = ((int16_t)(buffer[11] << 8 | buffer[10])) * A_sensitivity;
+
+    gyro_x = (float)(-gyro_y2 + gyro_y1*sin_30 - gyro_x1*cos_30 + gyro_x3*cos_30 + gyro_y3*sin_30)/3.0f - gyro_x_bias;
+    gyro_y = (float)( gyro_x2 - gyro_y1*cos_30 - gyro_x1*sin_30 - gyro_x3*sin_30 + gyro_y3*cos_30)/3.0f - gyro_y_bias;
+    gyro_z = (float)( gyro_z1 + gyro_z2 + gyro_z3 )/3.0f - gyro_z_bias;
+    /*gyro_x = (float)(-gyro_y2) - gyro_x_bias;
+    gyro_y = (float)( gyro_x2) - gyro_y_bias;
+    gyro_z = (float)( gyro_z2) - gyro_z_bias;*/
+
+    accel_x = (float)(-accel_y2 + accel_y1*sin_30 - accel_x1*cos_30 + accel_x3*cos_30 + accel_y3*sin_30)/3.0f;
+    accel_y = (float)( accel_x2 - accel_y1*cos_30 - accel_x1*sin_30 - accel_x3*sin_30 + accel_y3*cos_30)/3.0f;
+    accel_z = (float)( accel_z1 + accel_z2 + accel_z3 )/3.0f;
+    /*accel_x = (float)(-accel_y2);//3.0f;
+    accel_y = (float)( accel_x2);//3.0f;
+    accel_z = (float)( accel_z2);//3.0f;*/
+
+    if (fabs(gyro_x) < 0.5) gyro_x = 0.0;
+    if (fabs(gyro_y) < 0.5) gyro_y = 0.0;
+    if (fabs(gyro_z) < 0.5) gyro_z = 0.0;
+
+    MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
+    getEulerAngles(); //デバッグ用
+    //compensateGravity(accel_x, accel_y, accel_z);//重力補正
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -76,7 +166,13 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  setbuf(stdout, NULL);
+  double value1 = 0;
+  double value2 = 0;
+  double value3 = 0;
+  double deg1 = 0.0f; //[rad]
+  double deg2 = 0.0f; //[rad]
+  double deg3 = 0.0f; //[rad]
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -102,7 +198,38 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start_IT(&htim6);
 
+  INIT_IMU(1);
+  INIT_IMU(2);
+  INIT_IMU(3);
+
+  cos_30 = sqrt(3)/2;
+  sin_30 = 0.50f;
+
+  for(int i=0; i<1000; i++) {
+    uint8_t buffer6[6];
+    LSM6_ReadMulti(0x22, buffer6, 6, 1); // IMU1:一括読み出し
+    gyro_x1 = ((int16_t)(buffer6[1] << 8 | buffer6[0]));
+    gyro_y1 = ((int16_t)(buffer6[3] << 8 | buffer6[2]));
+    gyro_z1 = ((int16_t)(buffer6[5] << 8 | buffer6[4]));
+
+    LSM6_ReadMulti(0x22, buffer6, 6, 2); // IMU2:一括読み出し
+    gyro_x2 = ((int16_t)(buffer6[1] << 8 | buffer6[0]));
+    gyro_y2 = ((int16_t)(buffer6[3] << 8 | buffer6[2]));
+    gyro_z2 = ((int16_t)(buffer6[5] << 8 | buffer6[4]));
+
+    LSM6_ReadMulti(0x22, buffer6, 6, 3); // IMU3:一括読み出し
+    gyro_x3 = ((int16_t)(buffer6[1] << 8 | buffer6[0]));
+    gyro_y3 = ((int16_t)(buffer6[3] << 8 | buffer6[2]));
+    gyro_z3 = ((int16_t)(buffer6[5] << 8 | buffer6[4]));
+
+    gyro_x_bias += (float)(-gyro_y2 + gyro_y1*sin_30 - gyro_x1*cos_30 + gyro_x3*cos_30 + gyro_y3*sin_30);
+    gyro_y_bias += (float)( gyro_x2 - gyro_y1*cos_30 - gyro_x1*sin_30 - gyro_x3*sin_30 + gyro_y3*cos_30);
+    gyro_z_bias += (float)( gyro_z1 + gyro_z2 + gyro_z3 );
+
+    HAL_Delay(1);
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -110,7 +237,12 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+    printf("serial\n");
+    printf("gyro_x:%d,gyro_y:%d,gyro_z:%d,\r\n",(int)gyro_x,(int)gyro_y,(int)gyro_z);
+    printf("accel_x:%d,accel_y:%d,accel_z:%d\r\n",(int)accel_x,(int)accel_y,(int)accel_z);
+    printf("1:0x%02X,2:0x%02X,3:0x%02X\r\n",whoami,whoami2,whoami3);
+    printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
+    HAL_Delay(10);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -364,7 +496,119 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void LSM6_Write(uint8_t reg, uint8_t data, int port)
+{
+    GPIO_TypeDef* PORT;
+    uint16_t PIN;
+    uint8_t tx[2];
+    tx[0] = reg & 0x7F;   // Write（MSB=0）
+    tx[1] = data;
 
+    if(port == 1) { PORT = IMU1_CS_GPIO_Port; PIN = IMU1_CS_Pin; }
+    else if(port == 2) { PORT = IMU2_CS_GPIO_Port; PIN = IMU2_CS_Pin; }
+    else { PORT = IMU3_CS_GPIO_Port; PIN = IMU3_CS_Pin; }
+
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_RESET);
+    HAL_SPI_Transmit(&hspi2, tx, 2, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_SET);
+}
+
+uint8_t LSM6_Read(uint8_t reg, int port) { //1つのIMUから単独で読み出す場合
+    GPIO_TypeDef* PORT = IMU_CS_PORTS[port - 1];
+    uint16_t PIN = IMU_CS_PINS[port - 1];
+    uint8_t tx = reg | 0x80;  // Read（MSB=1）
+    uint8_t rx = 0;
+
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_RESET); // CS LOW
+    HAL_SPI_Transmit(&hspi2, &tx, 1, HAL_MAX_DELAY); // アドレス送信
+    HAL_SPI_Receive(&hspi2, &rx, 1, HAL_MAX_DELAY); // データ受信
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_SET); // CS HIGH
+
+    return rx;
+}
+
+void LSM6_ReadMulti(uint8_t reg, uint8_t* pData, uint16_t size, int port) { //1つのIMUからまとめて読み出す場合
+    GPIO_TypeDef* PORT = IMU_CS_PORTS[port - 1];
+    uint16_t PIN = IMU_CS_PINS[port - 1];
+    uint8_t tx_buf[13] = {0};
+    uint8_t rx_buf[13] = {0};
+    tx_buf[0] = reg | 0x80;
+
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_RESET);
+    // 送信と受信を同時に行う（サイズは アドレス1byte + データ分）
+    if(HAL_SPI_TransmitReceive(&hspi2, tx_buf, rx_buf, size + 1, HAL_MAX_DELAY) == HAL_OK) {
+        // rx_buf[0]はアドレス送信時のゴミなので、rx_buf[1]からコピー
+        for(int i = 0; i < size; i++) {
+            pData[i] = rx_buf[i + 1];
+        }
+    }
+    HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_SET);
+}
+void INIT_IMU(int port){
+  /*センサの初期化*/
+  LSM6_Write(0x12, 0x44,port); // CTRL3: reboot,BDU有効化,アドレス自動インクリメント有効化
+  /*ジャイロの初期化*/
+  LSM6_Write(0x15, 0x04,port); // CTRL6: FS=±2000dps
+  LSM6_Write(0x11, 0x06,port); // CTRL2: ODR=120Hz
+  /*加速度の初期化*/
+  LSM6_Write(0x17, 0x03,port); // CTRL8: FS=±16g
+  LSM6_Write(0x10, 0x06,port); // CTRL1: ODR=120Hz
+}
+
+float invSqrt(float x){
+  return 1.0f / sqrtf(x);
+}
+
+void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, float az, float dt){
+  float recipNorm;
+  float s0, s1, s2, s3;
+  float qDot1, qDot2, qDot3, qDot4;
+  float _2q0, _2q1, _2q2, _2q3, _4q0, _4q1, _4q2, _8q1, _8q2, q0q0, q1q1, q2q2, q3q3;
+
+  // 度/秒 を ラジアン/秒 に変換
+  gx *= CONV;
+  gy *= CONV;
+  gz *= CONV;
+
+  // ジャイロによるクォータニオンの変化率
+  qDot1 = 0.5f * (-q[1] * gx - q[2] * gy - q[3] * gz);
+  qDot2 = 0.5f * (q[0] * gx + q[2] * gz - q[3] * gy);
+  qDot3 = 0.5f * (q[0] * gy - q[1] * gz + q[3] * gx);
+  qDot4 = 0.5f * (q[0] * gz + q[1] * gy - q[2] * gx);
+
+  // 加速度が有効な場合のみ補正計算を行う
+  if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f))) {
+    recipNorm = invSqrt(ax * ax + ay * ay + az * az);
+    ax *= recipNorm; ay *= recipNorm; az *= recipNorm;
+
+    // 勾配降下法の計算
+    _2q0 = 2.0f * q[0]; _2q1 = 2.0f * q[1]; _2q2 = 2.0f * q[2]; _2q3 = 2.0f * q[3];
+    _4q0 = 4.0f * q[0]; _4q1 = 4.0f * q[1]; _4q2 = 4.0f * q[2];
+    _8q1 = 8.0f * q[1]; _8q2 = 8.0f * q[2];
+    q0q0 = q[0] * q[0]; q1q1 = q[1] * q[1]; q2q2 = q[2] * q[2]; q3q3 = q[3] * q[3];
+
+    s0 = _4q0 * q2q2 + _2q2 * ax + _4q0 * q1q1 - _2q1 * ay;
+    s1 = _4q1 * q3q3 - _2q3 * ax + 4.0f * q0q0 * q[1] - _2q0 * ay - _4q1 + _8q1 * q1q1 + _8q1 * q2q2 + _4q1 * az;
+    s2 = 4.0f * q0q0 * q[2] + _2q0 * ax + _4q2 * q3q3 - _2q3 * ay - _4q2 + _8q2 * q1q1 + _8q2 * q2q2 + _4q2 * az;
+    s3 = 4.0f * q1q1 * q[3] - _2q1 * ax + 4.0f * q2q2 * q[3] - _2q2 * ay;
+
+    recipNorm = invSqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3);
+    s0 *= recipNorm; s1 *= recipNorm; s2 *= recipNorm; s3 *= recipNorm;
+
+    qDot1 -= beta * s0; qDot2 -= beta * s1; qDot3 -= beta * s2; qDot4 -= beta * s3;
+  }
+
+  // 積分してクォータニオンを更新
+  q[0] += qDot1 * dt; q[1] += qDot2 * dt; q[2] += qDot3 * dt; q[3] += qDot4 * dt;
+  recipNorm = invSqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+  q[0] *= recipNorm; q[1] *= recipNorm; q[2] *= recipNorm; q[3] *= recipNorm;
+}
+
+void getEulerAngles(){
+  roll  = atan2f(2.0f * (q[0] * q[1] + q[2] * q[3]), 1.0f - 2.0f * (q[1] * q[1] + q[2] * q[2])) * 57.29578f;
+  pitch = asinf(2.0f * (q[0] * q[2] - q[3] * q[1])) * 57.29578f;
+  yaw   = atan2f(2.0f * (q[0] * q[3] + q[1] * q[2]), 1.0f - 2.0f * (q[2] * q[2] + q[3] * q[3])) * 57.29578f;
+}
 /* USER CODE END 4 */
 
 /**
