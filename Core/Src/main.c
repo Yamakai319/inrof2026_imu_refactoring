@@ -53,6 +53,8 @@ TIM_HandleTypeDef htim6;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+volatile uint8_t imu_data_ready = 0; // 割り込みフラグ
+
 typedef struct {
     int16_t gx, gy, gz; //gyro (x,y,z)
     int16_t ax, ay, az; //accel(x,y,z)
@@ -115,38 +117,7 @@ int _write(int file,char *ptr,int len)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if (&htim6 == htim) { // 1000Hz
-    
-    whoami = LSM6_Read(0x0F,1);
-    whoami2 = LSM6_Read(0x0F,2);
-    whoami3 = LSM6_Read(0x0F,3);
-
-    uint8_t buffer[12];
-    for (int i=0; i<3; i++){
-      LSM6_ReadMulti(0x22, buffer, 12, i+1); // IMU:一括読み出し
-      imu[i].gx = ((int16_t)(buffer[1] << 8 | buffer[0]));
-      imu[i].gy = ((int16_t)(buffer[3] << 8 | buffer[2]));
-      imu[i].gz = ((int16_t)(buffer[5] << 8 | buffer[4]));
-      imu[i].ax = ((int16_t)(buffer[7] << 8 | buffer[6]));
-      imu[i].ay = ((int16_t)(buffer[9] << 8 | buffer[8]));
-      imu[i].az = ((int16_t)(buffer[11] << 8 | buffer[10]));
-    }
-
-    gyro_x = (float)(-imu[1].gy + imu[0].gy*sin_30 - imu[0].gx*cos_30 + imu[2].gx*cos_30 + imu[2].gy*sin_30)*G_sensitivity/3.0f - gyro_x_bias;
-    gyro_y = (float)( imu[1].gx - imu[0].gy*cos_30 - imu[0].gx*sin_30 - imu[2].gx*sin_30 + imu[2].gy*cos_30)*G_sensitivity/3.0f - gyro_y_bias;
-    gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*G_sensitivity/3.0f - gyro_z_bias;
-    gyro_z = gyro_z * GYRO_Z_SCALE;
-
-    accel_x = (float)(-imu[1].ay + imu[0].ay*sin_30 - imu[0].ax*cos_30 + imu[2].ax*cos_30 + imu[2].ay*sin_30)*A_sensitivity/3.0f;
-    accel_y = (float)( imu[1].ax - imu[0].ay*cos_30 - imu[0].ax*sin_30 - imu[2].ax*sin_30 + imu[2].ay*cos_30)*A_sensitivity/3.0f;
-    accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*A_sensitivity/3.0f;
-
-    if (fabs(gyro_x) < 0.5) gyro_x = 0.0;
-    if (fabs(gyro_y) < 0.5) gyro_y = 0.0;
-    if (fabs(gyro_z) < 0.5) gyro_z = 0.0;
-
-    MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
-    getEulerAngles(); //デバッグ用
-    //compensateGravity(accel_x, accel_y, accel_z);//重力補正
+    imu_data_ready = 1;
   }
 }
 /* USER CODE END 0 */
@@ -203,6 +174,36 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    if (imu_data_ready){
+      imu_data_ready = 0;
+      uint8_t buffer[12];
+      for (int i=0; i<3; i++){
+        LSM6_ReadMulti(0x22, buffer, 12, i+1); // IMU:一括読み出し
+        imu[i].gx = ((int16_t)(buffer[1] << 8 | buffer[0]));
+        imu[i].gy = ((int16_t)(buffer[3] << 8 | buffer[2]));
+        imu[i].gz = ((int16_t)(buffer[5] << 8 | buffer[4]));
+        imu[i].ax = ((int16_t)(buffer[7] << 8 | buffer[6]));
+        imu[i].ay = ((int16_t)(buffer[9] << 8 | buffer[8]));
+        imu[i].az = ((int16_t)(buffer[11] << 8 | buffer[10]));
+      }
+
+      gyro_x = (float)(-imu[1].gy + imu[0].gy*sin_30 - imu[0].gx*cos_30 + imu[2].gx*cos_30 + imu[2].gy*sin_30)*G_sensitivity/3.0f - gyro_x_bias;
+      gyro_y = (float)( imu[1].gx - imu[0].gy*cos_30 - imu[0].gx*sin_30 - imu[2].gx*sin_30 + imu[2].gy*cos_30)*G_sensitivity/3.0f - gyro_y_bias;
+      gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*G_sensitivity/3.0f - gyro_z_bias;
+      gyro_z = gyro_z * GYRO_Z_SCALE;
+
+      accel_x = (float)(-imu[1].ay + imu[0].ay*sin_30 - imu[0].ax*cos_30 + imu[2].ax*cos_30 + imu[2].ay*sin_30)*A_sensitivity/3.0f;
+      accel_y = (float)( imu[1].ax - imu[0].ay*cos_30 - imu[0].ax*sin_30 - imu[2].ax*sin_30 + imu[2].ay*cos_30)*A_sensitivity/3.0f;
+      accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*A_sensitivity/3.0f;
+
+      if (fabs(gyro_x) < 0.5) gyro_x = 0.0;
+      if (fabs(gyro_y) < 0.5) gyro_y = 0.0;
+      if (fabs(gyro_z) < 0.5) gyro_z = 0.0;
+
+      MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
+      getEulerAngles(); //デバッグ用
+      //compensateGravity(accel_x, accel_y, accel_z);//重力補正
+    }
     //whoami = LSM6_Read(0x0F,1);
     //whoami2 = LSM6_Read(0x0F,2);
     //whoami3 = LSM6_Read(0x0F,3);
@@ -329,7 +330,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_HIGH;
   hspi2.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
