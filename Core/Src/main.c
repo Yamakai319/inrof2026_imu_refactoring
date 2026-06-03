@@ -47,6 +47,8 @@
 FDCAN_HandleTypeDef hfdcan1;
 
 SPI_HandleTypeDef hspi2;
+DMA_HandleTypeDef hdma_spi2_tx;
+DMA_HandleTypeDef hdma_spi2_rx;
 
 TIM_HandleTypeDef htim6;
 
@@ -62,8 +64,8 @@ typedef struct {
 
 volatile IMUData imu[3];
 uint8_t whoami, whoami2, whoami3;
-volatile float gyro_x, gyro_y, gyro_z;
-volatile float accel_x, accel_y, accel_z;
+float gyro_x, gyro_y, gyro_z;
+float accel_x, accel_y, accel_z;
 double gyro_x_bias = 0.0f;
 double gyro_y_bias = 0.0f;
 double gyro_z_bias = 0.0f;
@@ -89,6 +91,7 @@ const uint16_t IMU_CS_PINS[3]       = {IMU1_CS_Pin, IMU2_CS_Pin, IMU3_CS_Pin};
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_FDCAN1_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -120,6 +123,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     imu_data_ready = 1;
   }
 }
+
+
+
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
+    if (hspi->Instance == SPI2) {
+        // ここにブレークポイントを貼っておけば、エラー時に止まる
+        // エラー内容：hspi->ErrorCode を確認
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -130,6 +142,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  int loop_count = 0;
   setbuf(stdout, NULL);
 
   /* USER CODE END 1 */
@@ -152,6 +165,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_FDCAN1_Init();
   MX_SPI2_Init();
   MX_USART2_UART_Init();
@@ -176,6 +190,7 @@ int main(void)
   {
     if (imu_data_ready){
       imu_data_ready = 0;
+      loop_count++;
       uint8_t buffer[12];
       for (int i=0; i<3; i++){
         LSM6_ReadMulti(0x22, buffer, 12, i+1); // IMU:一括読み出し
@@ -209,8 +224,10 @@ int main(void)
     //whoami3 = LSM6_Read(0x0F,3);
     //printf("serial\n");
     //printf("1:0x%02X,2:0x%02X,3:0x%02X\r\n",whoami,whoami2,whoami3);
-    printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
-    HAL_Delay(10);
+    if (loop_count == 100){
+      loop_count = 0;
+      printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -430,6 +447,26 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMAMUX1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMA1_Channel2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
 
