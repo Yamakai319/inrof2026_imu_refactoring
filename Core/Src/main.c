@@ -41,6 +41,7 @@
 #define R 30//mm  //radious of wheel
 #define PPR 2000 //pulses per revolution
 #define CONV M_PI / 180.0f // 度/秒 を ラジアン/秒 に変換する時に掛ける
+#define SPI_BUFFER_SIZE 13 // アドレス(1) + データ(12)
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -55,6 +56,18 @@ TIM_HandleTypeDef htim6;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+// 送信バッファ（最初の1バイト目に読み出し先アドレス 0x22 | 0x80 を入れておく）
+uint8_t spi_tx_buf[SPI_BUFFER_SIZE] = {0xA2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
+
+// 受信バッファ（IMUごとに独立して用意する）
+uint8_t imu1_rx_buf[SPI_BUFFER_SIZE];
+uint8_t imu2_rx_buf[SPI_BUFFER_SIZE];
+uint8_t imu3_rx_buf[SPI_BUFFER_SIZE];
+
+// ステートマシン用の状態変数
+// 0: 待機中, 1: IMU1読出中, 2: IMU2読出中, 3: IMU3読出中, 4: データ準備完了
+volatile uint8_t imu_read_state = 0;
+
 volatile uint8_t imu_data_ready = 0; // 割り込みフラグ
 
 typedef struct {
@@ -121,6 +134,19 @@ int _write(int file,char *ptr,int len)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if (&htim6 == htim) { // 1000Hz
     imu_data_ready = 1;
+    
+    // 現在待機中(0)か、前回の処理が終わってデータ準備完了(4)なら次を開始
+    /*if (imu_read_state == 0 || imu_read_state == 4) {
+      imu_read_state = 1; // 状態を「IMU1読出中」に変更
+      
+      // IMU1のCSをLOWにして通信開始
+      HAL_GPIO_WritePin(IMU1_CS_GPIO_Port, IMU1_CS_Pin, GPIO_PIN_RESET);
+      HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, imu1_rx_buf, SPI_BUFFER_SIZE);
+    } else {
+      // ここに入る場合は、1ms以内に前回計算が終わっていない（処理落ち）
+      //printf("DMA START ERROR! State: %d\r\n", hspi2.State);
+      // エラーカウントを増やすなどの処理を入れるとデバッグに役立ちます
+    }*/
   }
 }
 
@@ -129,6 +155,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
     if (hspi->Instance == SPI2) {
         // ここにブレークポイントを貼っておけば、エラー時に止まる
+        printf("SPI ERROR! Code: %lu\r\n", hspi->ErrorCode);
         // エラー内容：hspi->ErrorCode を確認
     }
 }
@@ -181,6 +208,9 @@ int main(void)
   sin_30 = 0.50f;
 
   resetBias();
+  //printf("bias resetted\r\n");
+  //__HAL_SPI_CLEAR_OVRFLAG(&hspi2);
+
   HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END 2 */
 
@@ -219,6 +249,61 @@ int main(void)
       getEulerAngles(); //デバッグ用
       //compensateGravity(accel_x, accel_y, accel_z);//重力補正
     }
+
+    /*if (imu_read_state == 4) {
+      // ----------------------------------------------------
+      // ① データのパース（rx_bufの[1]～[12]から復元）
+      // ----------------------------------------------------
+      imu[0].gx = ((int16_t)(imu1_rx_buf[2] << 8 | imu1_rx_buf[1]));
+      imu[0].gy = ((int16_t)(imu1_rx_buf[4] << 8 | imu1_rx_buf[3]));
+      imu[0].gz = ((int16_t)(imu1_rx_buf[6] << 8 | imu1_rx_buf[5]));
+      imu[0].ax = ((int16_t)(imu1_rx_buf[8] << 8 | imu1_rx_buf[7]));
+      imu[0].ay = ((int16_t)(imu1_rx_buf[10] << 8 | imu1_rx_buf[9]));
+      imu[0].az = ((int16_t)(imu1_rx_buf[12] << 8 | imu1_rx_buf[11]));
+
+      imu[1].gx = ((int16_t)(imu2_rx_buf[2] << 8 | imu2_rx_buf[1]));
+      imu[1].gy = ((int16_t)(imu2_rx_buf[4] << 8 | imu2_rx_buf[3]));
+      imu[1].gz = ((int16_t)(imu2_rx_buf[6] << 8 | imu2_rx_buf[5]));
+      imu[1].ax = ((int16_t)(imu2_rx_buf[8] << 8 | imu2_rx_buf[7]));
+      imu[1].ay = ((int16_t)(imu2_rx_buf[10] << 8 | imu2_rx_buf[9]));
+      imu[1].az = ((int16_t)(imu2_rx_buf[12] << 8 | imu2_rx_buf[11]));
+
+      imu[2].gx = ((int16_t)(imu3_rx_buf[2] << 8 | imu3_rx_buf[1]));
+      imu[2].gy = ((int16_t)(imu3_rx_buf[4] << 8 | imu3_rx_buf[3]));
+      imu[2].gz = ((int16_t)(imu3_rx_buf[6] << 8 | imu3_rx_buf[5]));
+      imu[2].ax = ((int16_t)(imu3_rx_buf[8] << 8 | imu3_rx_buf[7]));
+      imu[2].ay = ((int16_t)(imu3_rx_buf[10] << 8 | imu3_rx_buf[9]));
+      imu[2].az = ((int16_t)(imu3_rx_buf[12] << 8 | imu3_rx_buf[11]));
+      // ... (中略：IMU1〜3のジャイロと加速度を取り出す) ...
+
+      // ----------------------------------------------------
+      // ② 座標変換と合成
+      // ----------------------------------------------------
+      gyro_x = (float)(-imu[1].gy + imu[0].gy*sin_30 - imu[0].gx*cos_30 + imu[2].gx*cos_30 + imu[2].gy*sin_30)*G_sensitivity/3.0f - gyro_x_bias;
+      gyro_y = (float)( imu[1].gx - imu[0].gy*cos_30 - imu[0].gx*sin_30 - imu[2].gx*sin_30 + imu[2].gy*cos_30)*G_sensitivity/3.0f - gyro_y_bias;
+      gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*G_sensitivity/3.0f - gyro_z_bias;
+      gyro_z = gyro_z * GYRO_Z_SCALE;
+
+      accel_x = (float)(-imu[1].ay + imu[0].ay*sin_30 - imu[0].ax*cos_30 + imu[2].ax*cos_30 + imu[2].ay*sin_30)*A_sensitivity/3.0f;
+      accel_y = (float)( imu[1].ax - imu[0].ay*cos_30 - imu[0].ax*sin_30 - imu[2].ax*sin_30 + imu[2].ay*cos_30)*A_sensitivity/3.0f;
+      accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*A_sensitivity/3.0f;
+
+      if (fabs(gyro_x) < 0.5) gyro_x = 0.0;
+      if (fabs(gyro_y) < 0.5) gyro_y = 0.0;
+      if (fabs(gyro_z) < 0.5) gyro_z = 0.0;
+
+      // ----------------------------------------------------
+      // ③ フィルタ演算（重い処理）
+      // ----------------------------------------------------
+      MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
+      getEulerAngles();
+
+      // ----------------------------------------------------
+      // ④ 状態をリセットし、次の1msのタイマーを待つ
+      // ----------------------------------------------------
+      loop_count++;
+      imu_read_state = 0; 
+    }*/
     //whoami = LSM6_Read(0x0F,1);
     //whoami2 = LSM6_Read(0x0F,2);
     //whoami3 = LSM6_Read(0x0F,3);
@@ -585,6 +670,38 @@ void resetBias(){
   def_az = def_az * A_sensitivity *0.001f / 3.0f;
   accelCVR = 9.80665f/def_az;
   isSettingBias = 0;
+}
+
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi) {
+  if (hspi->Instance == SPI2) {
+    switch (imu_read_state) {
+      case 1: // IMU1の受信が完了した
+        HAL_GPIO_WritePin(IMU1_CS_GPIO_Port, IMU1_CS_Pin, GPIO_PIN_SET); // IMU1終了
+        
+        imu_read_state = 2; // 次はIMU2
+        HAL_GPIO_WritePin(IMU2_CS_GPIO_Port, IMU2_CS_Pin, GPIO_PIN_RESET);
+        HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, imu2_rx_buf, SPI_BUFFER_SIZE);
+        break;
+
+      case 2: // IMU2の受信が完了した
+        HAL_GPIO_WritePin(IMU2_CS_GPIO_Port, IMU2_CS_Pin, GPIO_PIN_SET); // IMU2終了
+        
+        imu_read_state = 3; // 次はIMU3
+        HAL_GPIO_WritePin(IMU3_CS_GPIO_Port, IMU3_CS_Pin, GPIO_PIN_RESET);
+        HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, imu3_rx_buf, SPI_BUFFER_SIZE);
+        break;
+
+      case 3: // IMU3の受信が完了した
+        HAL_GPIO_WritePin(IMU3_CS_GPIO_Port, IMU3_CS_Pin, GPIO_PIN_SET); // IMU3終了
+        
+        // 全てのデータが揃ったので、メインループに計算を許可する
+        imu_read_state = 4; 
+        break;
+          
+      default:
+        break;
+    }
+  }
 }
 
 float invSqrt(float x){
