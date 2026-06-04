@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
+#include "lsm6dsv_reg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -97,6 +98,10 @@ float a_Ez = 0.0f;
 float accelCVR; //mgをm/s^2に変換する時に掛ける
 float vz = 0.0f; //z軸方向の速度
 float z = 0.0f; //デバッグ用高さ
+float current_yaw = 0.0;      // 今回のヨー角 (-180~180)
+float last_yaw = 0.0;         // 前回のヨー角
+float cumulative_yaw = 0.0;    // 累積のヨー角（これが求めたいもの）
+bool first_run = true;         // 初回判定用
 GPIO_TypeDef* const IMU_CS_PORTS[3] = {IMU1_CS_GPIO_Port, IMU2_CS_GPIO_Port, IMU3_CS_GPIO_Port};
 const uint16_t IMU_CS_PINS[3]       = {IMU1_CS_Pin, IMU2_CS_Pin, IMU3_CS_Pin};
 /* USER CODE END PV */
@@ -118,6 +123,7 @@ float invSqrt(float x);
 void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, float az, float dt);
 void getEulerAngles();
 void resetBias();
+void update_cumulative_yaw();
 
 /* USER CODE END PFP */
 
@@ -200,6 +206,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_Delay(2000);
 
+  //dev_ctx.handle = &my_i2c_handle;
   INIT_IMU(1);
   INIT_IMU(2);
   INIT_IMU(3);
@@ -247,6 +254,7 @@ int main(void)
 
       MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
       getEulerAngles(); //デバッグ用
+      update_cumulative_yaw();
       //compensateGravity(accel_x, accel_y, accel_z);//重力補正
     }
 
@@ -311,7 +319,8 @@ int main(void)
     //printf("1:0x%02X,2:0x%02X,3:0x%02X\r\n",whoami,whoami2,whoami3);
     if (loop_count == 100){
       loop_count = 0;
-      printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
+      //printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
+      printf("%.2f %.2f\r\n",yaw, cumulative_yaw);
     }
     /* USER CODE END WHILE */
 
@@ -757,6 +766,43 @@ void getEulerAngles(){
   roll  = atan2f(2.0f * (q[0] * q[1] + q[2] * q[3]), 1.0f - 2.0f * (q[1] * q[1] + q[2] * q[2])) * 57.29578f;
   pitch = asinf(2.0f * (q[0] * q[2] - q[3] * q[1])) * 57.29578f;
   yaw   = atan2f(2.0f * (q[0] * q[3] + q[1] * q[2]), 1.0f - 2.0f * (q[2] * q[2] + q[3] * q[3])) * 57.29578f;
+}
+
+void update_cumulative_yaw(){
+  // 1. クォータニオンからヨー角(radian)を計算
+  current_yaw = yaw;
+
+  // 初回実行時は前回の値を現在の値で初期化
+  if (first_run) {
+      last_yaw = current_yaw;
+      cumulative_yaw = 0.0; // ここを0にすることで、ここからの相対角になる
+      first_run = false;
+      return;
+  }
+
+  // 2. 前回からの変化量を計算
+  float diff = current_yaw - last_yaw;
+
+  // 3. 位相反転（アンラップ）処理
+  // +180度付近から-180度付近へ飛んだ場合 (時計回り)
+  if (diff < -180.0f) {
+      diff += 360.0f;
+  }
+  // -180度付近から+180度付近へ飛んだ場合 (反時計回り)
+  else if (diff > 180.0f) {
+      diff -= 360.0f;
+  }
+
+  // 4. 累積値に加算
+  cumulative_yaw += diff;
+
+  // 次回のために現在の値を保存
+  last_yaw = current_yaw;
+}
+
+void reset_cumulative_angle() {
+    cumulative_yaw = 0.0;
+    // last_yaw は現在の値のまま維持することで、リセット直後の飛びを防ぐ
 }
 /* USER CODE END 4 */
 

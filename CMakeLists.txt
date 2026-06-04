@@ -67,3 +67,8 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     # Add user defined libraries
 )
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,-u,_printf_float)
+
+include_directories(Middlewares/ST/lsm6dsv-pid)
+set(LSM6DSV_SOURCES
+    Middlewares/ST/lsm6dsv-pid/lsm6dsv_reg.c
+)
