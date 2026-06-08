@@ -24,7 +24,6 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
-#include "lsm6dsv_reg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,6 +42,8 @@
 #define PPR 2000 //pulses per revolution
 #define CONV M_PI / 180.0f // 度/秒 を ラジアン/秒 に変換する時に掛ける
 #define SPI_BUFFER_SIZE 13 // アドレス(1) + データ(12)
+#define CAN_ID_YAW_FEEDBACK 0x500
+#define CAN_ID_YAW_RESET 0x501
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -70,7 +71,7 @@ uint8_t imu3_rx_buf[SPI_BUFFER_SIZE];
 volatile uint8_t imu_read_state = 0;
 
 volatile uint8_t imu_data_ready = 0; // 割り込みフラグ
-
+volatile uint8_t yaw_reset = 0; //yawのリセットフラグ
 typedef struct {
     int16_t gx, gy, gz; //gyro (x,y,z)
     int16_t ax, ay, az; //accel(x,y,z)
@@ -104,6 +105,7 @@ float cumulative_yaw = 0.0;    // 累積のヨー角（これが求めたいも�
 bool first_run = true;         // 初回判定用
 GPIO_TypeDef* const IMU_CS_PORTS[3] = {IMU1_CS_GPIO_Port, IMU2_CS_GPIO_Port, IMU3_CS_GPIO_Port};
 const uint16_t IMU_CS_PINS[3]       = {IMU1_CS_Pin, IMU2_CS_Pin, IMU3_CS_Pin};
+FDCAN_TxHeaderTypeDef TxHeader;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -115,6 +117,10 @@ static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
+void interboard_comms_CAN_filter_init(FDCAN_FilterTypeDef *Hfdcan_Filter_Settings);
+void interboard_comms_CAN_txheader_init(FDCAN_TxHeaderTypeDef *Htxheader);
+HAL_StatusTypeDef interboard_comms_CAN_RxTxSettings_init(FDCAN_TxHeaderTypeDef *Htxheader);
+HAL_StatusTypeDef CAN_SEND(uint32_t CANID, uint32_t DataLength, uint8_t *txdata, FDCAN_HandleTypeDef *hfdcan, FDCAN_TxHeaderTypeDef *htxheader);
 void LSM6_Write(uint8_t reg, uint8_t data, int port);
 void LSM6_ReadMulti(uint8_t reg, uint8_t* pData, uint16_t size, int port);
 uint8_t LSM6_Read(uint8_t reg, int port);
@@ -124,6 +130,8 @@ void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, flo
 void getEulerAngles();
 void resetBias();
 void update_cumulative_yaw();
+void u8_to_int(uint8_t *req, int32_t *des, uint32_t uint8_len);
+void float_to_u8(float *req, uint8_t *des, uint32_t float_len);
 
 /* USER CODE END PFP */
 
@@ -156,7 +164,90 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
   }
 }
 
+void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs){
+  int last_value = 0;
+	if (RESET != (RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE)) {
 
+    /* Retrieve Rx messages from RX FIFO1 */
+		uint8_t RxData[64] = {};
+    FDCAN_RxHeaderTypeDef RxHeader;
+		if (HAL_OK != HAL_FDCAN_GetRxMessage(&hfdcan1, FDCAN_RX_FIFO1, &RxHeader, RxData)) {
+			printf("fdcan_getrxmessage is error\r\n");
+			Error_Handler();
+		}
+
+    int len = 0;
+    switch (RxHeader.DataLength)
+    {
+    case FDCAN_DLC_BYTES_0:
+      len = 0;
+      break;
+    case FDCAN_DLC_BYTES_1:
+      len = 1;
+      break;
+    case FDCAN_DLC_BYTES_2:
+      len = 2;
+      break;
+    case FDCAN_DLC_BYTES_3:
+      len = 3;
+      break;
+    case FDCAN_DLC_BYTES_4:
+      len = 4;
+      break;
+    case FDCAN_DLC_BYTES_5:
+      len = 5;
+      break;
+    case FDCAN_DLC_BYTES_6:
+      len = 6;
+      break;
+    case FDCAN_DLC_BYTES_7:
+      len = 7;
+      break;
+    case FDCAN_DLC_BYTES_8:
+      len = 8;
+      break;
+    case FDCAN_DLC_BYTES_12:
+      len = 12;
+      break;
+    case FDCAN_DLC_BYTES_16:
+      len = 16;
+      break;
+    case FDCAN_DLC_BYTES_20:
+      len = 20;
+      break;
+    case FDCAN_DLC_BYTES_24:
+      len = 24;
+      break;
+    case FDCAN_DLC_BYTES_32:
+      len = 32;
+      break;
+    case FDCAN_DLC_BYTES_48:
+      len = 48;
+      break;
+    case FDCAN_DLC_BYTES_64:
+      len = 64;
+      break;
+    default:
+      break;
+    }
+
+    switch (RxHeader.Identifier)
+    {
+      case CAN_ID_YAW_RESET: // change this value for testing. Reccommend to use an ID with privateDefined macro
+        /* code */
+        int32_t rxdata_i[16];
+        u8_to_int(RxData, rxdata_i, len);
+        if (rxdata_i[0] != last_value){
+          yaw_reset = 1;
+        }
+        last_value = rxdata_i[0];
+        break;
+      default:
+        // printf("unknown CAN ID received: 0x%03lX\r\n", RxHeader.Identifier); // printf should be commented out within Callback
+        break;
+    }
+	}
+}
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi) {
     if (hspi->Instance == SPI2) {
@@ -256,6 +347,11 @@ int main(void)
       getEulerAngles(); //デバッグ用
       update_cumulative_yaw();
       //compensateGravity(accel_x, accel_y, accel_z);//重力補正
+
+      float txdata_q[1] = {cumulative_yaw};
+      uint8_t txdata1_u8[4] = {0};
+      float_to_u8(txdata_q, txdata1_u8, 1);
+      CAN_SEND(CAN_ID_YAW_FEEDBACK, FDCAN_DLC_BYTES_16, txdata1_u8, &hfdcan1, &TxHeader);
     }
 
     /*if (imu_read_state == 4) {
@@ -321,6 +417,11 @@ int main(void)
       loop_count = 0;
       //printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
       printf("%.2f %.2f\r\n",yaw, cumulative_yaw);
+    }
+
+    if (yaw_reset == 1){
+      reset_cumulative_angle();
+      yaw_reset = 0;
     }
     /* USER CODE END WHILE */
 
@@ -561,6 +662,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel2_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+  /* DMAMUX_OVR_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMAMUX_OVR_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMAMUX_OVR_IRQn);
 
 }
 
@@ -597,6 +701,69 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void interboard_comms_CAN_filter_init(FDCAN_FilterTypeDef *Hfdcan_Filter_Settings)
+{
+  Hfdcan_Filter_Settings->IdType = FDCAN_STANDARD_ID;
+  Hfdcan_Filter_Settings->FilterIndex = 0;
+  Hfdcan_Filter_Settings->FilterType = FDCAN_FILTER_RANGE;
+  Hfdcan_Filter_Settings->FilterConfig = FDCAN_FILTER_TO_RXFIFO1;
+  Hfdcan_Filter_Settings->FilterID1 = 0x00;
+  Hfdcan_Filter_Settings->FilterID2 = 0x7ff;
+}
+
+void interboard_comms_CAN_txheader_init(FDCAN_TxHeaderTypeDef *Htxheader)
+{
+  Htxheader->Identifier = 0x00;
+  Htxheader->IdType = FDCAN_STANDARD_ID;
+  Htxheader->TxFrameType = FDCAN_DATA_FRAME;
+  Htxheader->DataLength = FDCAN_DLC_BYTES_8;
+  Htxheader->ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+  Htxheader->FDFormat = FDCAN_FD_CAN;
+  Htxheader->BitRateSwitch = FDCAN_BRS_ON;
+  Htxheader->TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+  Htxheader->MessageMarker = 0;
+}
+
+HAL_StatusTypeDef interboard_comms_CAN_RxTxSettings_init(FDCAN_TxHeaderTypeDef *Htxheader)
+{
+  FDCAN_FilterTypeDef FDCAN_Filter_settings;
+  interboard_comms_CAN_filter_init(&FDCAN_Filter_settings);
+  interboard_comms_CAN_txheader_init(Htxheader);
+  if (HAL_OK != HAL_FDCAN_ConfigFilter(&hfdcan1, &FDCAN_Filter_settings))
+  {
+    printf("fdcan_configfilter is error\r\n");
+    return HAL_ERROR;
+  }
+  if (HAL_OK != HAL_FDCAN_ConfigGlobalFilter(&hfdcan1, FDCAN_REJECT, FDCAN_FILTER_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE))
+  {
+    printf("fdcan_configglobalfilter is error\r\n");
+    return HAL_ERROR;
+  }
+  if (HAL_OK != HAL_FDCAN_Start(&hfdcan1))
+  {
+    printf("fdcan_start is error\r\n");
+    return HAL_ERROR;
+  }
+  if (HAL_OK != HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO1_NEW_MESSAGE, 0))
+  {
+    printf("fdcan_activatenotification is error\r\n");
+    return HAL_ERROR;
+  }
+
+  return HAL_OK;
+}
+
+HAL_StatusTypeDef CAN_SEND(uint32_t CANID, uint32_t DataLength, uint8_t *txdata, FDCAN_HandleTypeDef *hfdcan, FDCAN_TxHeaderTypeDef *htxheader)
+{
+  htxheader->DataLength = DataLength;
+  htxheader->Identifier = CANID;
+  if (HAL_OK != HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, htxheader, txdata))
+  {
+    printf("addmessage error\r\n");
+    return HAL_ERROR;
+  }
+  return HAL_OK;
+}
 
 void LSM6_Write(uint8_t reg, uint8_t data, int port)
 {
@@ -803,6 +970,32 @@ void update_cumulative_yaw(){
 void reset_cumulative_angle() {
     cumulative_yaw = 0.0;
     // last_yaw は現在の値のまま維持することで、リセット直後の飛びを防ぐ
+}
+
+void float_to_u8(float *req, uint8_t *des, uint32_t float_len)
+{
+  union IntAndFloat {
+    uint32_t ival;
+    float fval;
+  };
+  for (int i = 0; i < float_len; i++)
+  {
+    union IntAndFloat target;
+    target.fval = req[i];
+    uint32_t val = target.ival;
+    des[i*4    ] = (uint8_t)((val >> 24) & 0xff);
+    des[i*4 + 1] = (uint8_t)((val >> 16) & 0xff);
+    des[i*4 + 2] = (uint8_t)((val >>  8) & 0xff);
+    des[i*4 + 3] = (uint8_t)((val      ) & 0xff);
+  }
+}
+
+void u8_to_int(uint8_t *req, int32_t *des, uint32_t uint8_len)
+{
+  for(int i = 0; i < uint8_len/4; i++){
+    uint32_t u32 = ((req[i*4] << 24) | (req[i*4+1] << 16) | (req[i*4+2] << 8) | (req[i*4+3]));
+    des[i] = (int32_t)u32;
+  }
 }
 /* USER CODE END 4 */
 
