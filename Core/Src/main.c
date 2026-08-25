@@ -43,7 +43,7 @@
 #define CONV M_PI / 180.0f // 度/秒 を ラジアン/秒 に変換する時に掛ける
 #define SPI_BUFFER_SIZE 13 // アドレス(1) + データ(12)
 #define CAN_ID_YAW_RESET 0x500
-#define CAN_ID_YAW_FEEDBACK 0x501
+#define CAN_ID_YAW_FEEDBACK 0x350
 
 /* USER CODE END PM */
 
@@ -352,10 +352,10 @@ int main(void)
       update_cumulative_yaw();
       //compensateGravity(accel_x, accel_y, accel_z);//重力補正
 
-      float txdata_q[2] = {yaw, cumulative_yaw};
-      uint8_t txdata1_u8[8] = {0};
-      float_to_u8(txdata_q, txdata1_u8, 2);
-      CAN_SEND(CAN_ID_YAW_FEEDBACK, FDCAN_DLC_BYTES_8, txdata1_u8, &hfdcan1, &TxHeader);
+      float txdata_q[1] = {cumulative_yaw};
+      uint8_t txdata1_u8[4] = {0};
+      float_to_u8(txdata_q, txdata1_u8, 1);
+      CAN_SEND(CAN_ID_YAW_FEEDBACK, FDCAN_DLC_BYTES_4, txdata1_u8, &hfdcan1, &TxHeader);
     }
 
     /*if (imu_read_state == 4) {
@@ -420,9 +420,9 @@ int main(void)
     if (loop_count == 100){
       loop_count = 0;
       //printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
-      //printf("%.2f %.2f\r\n",yaw, cumulative_yaw);
+      printf("%.2f %.2f\r\n",yaw, cumulative_yaw);
       //printf("%d %d\r\n",txdata1_u8[6], txdata1_u8[7]);
-      printf("%d\r\n",(int)last_value);
+      //printf("%d\r\n",(int)last_value);
       //printf("%d\r\n",(int)yaw_reset);
     }
 
