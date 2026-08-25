@@ -1,6 +1,8 @@
 #ifndef IMU_H
 #define IMU_H
 
+#include <stdint.h>
+
 /*構造体の定義*/
 typedef struct {
     int16_t gx, gy, gz; //gyro (x,y,z)
@@ -8,7 +10,7 @@ typedef struct {
 } IMUData;
 
 /*変数の宣言*/
-extern IMUData imu[3];
+extern volatile IMUData imu[3];
 
 /*関数のプロトタイプ宣言*/
 void LSM6_Write(uint8_t reg, uint8_t data, int port);

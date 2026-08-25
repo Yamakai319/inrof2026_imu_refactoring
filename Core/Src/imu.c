@@ -3,10 +3,13 @@
 #include "stm32g474xx.h"
 #include <stdint.h>
 #include <main.h>
+#include <stdio.h>
+#include <math.h>
 
-SPI_HandleTypeDef hspi2;
+extern SPI_HandleTypeDef hspi2;
 GPIO_TypeDef* const IMU_CS_PORTS[3] = {IMU1_CS_GPIO_Port, IMU2_CS_GPIO_Port, IMU3_CS_GPIO_Port};
 const uint16_t IMU_CS_PINS[3]       = {IMU1_CS_Pin, IMU2_CS_Pin, IMU3_CS_Pin};
+volatile IMUData imu[3];
 
 void LSM6_Write(uint8_t reg, uint8_t data, int i)
 {
