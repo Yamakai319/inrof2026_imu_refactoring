@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "macro.h"
 #include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
@@ -40,10 +41,7 @@
 /* USER CODE BEGIN PM */
 #define R 30//mm  //radious of wheel
 #define PPR 2000 //pulses per revolution
-#define CONV M_PI / 180.0f // 度/秒 を ラジアン/秒 に変換する時に掛ける
 #define SPI_BUFFER_SIZE 13 // アドレス(1) + データ(12)
-#define CAN_ID_YAW_RESET 0x500
-#define CAN_ID_YAW_FEEDBACK 0x350
 
 /* USER CODE END PM */
 
@@ -85,10 +83,7 @@ float accel_x, accel_y, accel_z;
 double gyro_x_bias = 0.0f;
 double gyro_y_bias = 0.0f;
 double gyro_z_bias = 0.0f;
-const float G_sensitivity = 0.070f;
-const float A_sensitivity = 0.488f;
-const float GYRO_Z_SCALE = 0.9965f;
-float cos_30, sin_30;
+
 float beta = 0.1f; //Madgwickフィルタのゲイン
 float roll, pitch, yaw;
 float dt = 0.001f;
@@ -306,9 +301,6 @@ int main(void)
   INIT_IMU(2);
   INIT_IMU(3);
 
-  cos_30 = sqrt(3)/2;
-  sin_30 = 0.50f;
-
   resetBias();
   //printf("bias resetted\r\n");
   //__HAL_SPI_CLEAR_OVRFLAG(&hspi2);
@@ -334,14 +326,14 @@ int main(void)
         imu[i].az = ((int16_t)(buffer[11] << 8 | buffer[10]));
       }
 
-      gyro_x = (float)(-imu[1].gy + imu[0].gy*sin_30 - imu[0].gx*cos_30 + imu[2].gx*cos_30 + imu[2].gy*sin_30)*G_sensitivity/3.0f - gyro_x_bias;
-      gyro_y = (float)( imu[1].gx - imu[0].gy*cos_30 - imu[0].gx*sin_30 - imu[2].gx*sin_30 + imu[2].gy*cos_30)*G_sensitivity/3.0f - gyro_y_bias;
-      gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*G_sensitivity/3.0f - gyro_z_bias;
-      gyro_z = gyro_z * GYRO_Z_SCALE;
+      gyro_x = (float)(-imu[1].gy + imu[0].gy*SIN_30_DEG - imu[0].gx*COS_30_DEG + imu[2].gx*COS_30_DEG + imu[2].gy*SIN_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_x_bias;
+      gyro_y = (float)( imu[1].gx - imu[0].gy*COS_30_DEG - imu[0].gx*SIN_30_DEG - imu[2].gx*SIN_30_DEG + imu[2].gy*COS_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_y_bias;
+      gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*IMU_GYRO_SENSITIVITY/3.0f - gyro_z_bias;
+      gyro_z = gyro_z * IMU_GYRO_Z_SCALE;
 
-      accel_x = (float)(-imu[1].ay + imu[0].ay*sin_30 - imu[0].ax*cos_30 + imu[2].ax*cos_30 + imu[2].ay*sin_30)*A_sensitivity/3.0f;
-      accel_y = (float)( imu[1].ax - imu[0].ay*cos_30 - imu[0].ax*sin_30 - imu[2].ax*sin_30 + imu[2].ay*cos_30)*A_sensitivity/3.0f;
-      accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*A_sensitivity/3.0f;
+      accel_x = (float)(-imu[1].ay + imu[0].ay*SIN_30_DEG - imu[0].ax*COS_30_DEG + imu[2].ax*COS_30_DEG + imu[2].ay*SIN_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
+      accel_y = (float)( imu[1].ax - imu[0].ay*COS_30_DEG - imu[0].ax*SIN_30_DEG - imu[2].ax*SIN_30_DEG + imu[2].ay*COS_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
+      accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*IMU_ACCEL_SENSITIVITY/3.0f;
 
       if (fabs(gyro_x) < 0.5) gyro_x = 0.0;
       if (fabs(gyro_y) < 0.5) gyro_y = 0.0;
@@ -387,14 +379,14 @@ int main(void)
       // ----------------------------------------------------
       // ② 座標変換と合成
       // ----------------------------------------------------
-      gyro_x = (float)(-imu[1].gy + imu[0].gy*sin_30 - imu[0].gx*cos_30 + imu[2].gx*cos_30 + imu[2].gy*sin_30)*G_sensitivity/3.0f - gyro_x_bias;
-      gyro_y = (float)( imu[1].gx - imu[0].gy*cos_30 - imu[0].gx*sin_30 - imu[2].gx*sin_30 + imu[2].gy*cos_30)*G_sensitivity/3.0f - gyro_y_bias;
-      gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*G_sensitivity/3.0f - gyro_z_bias;
-      gyro_z = gyro_z * GYRO_Z_SCALE;
+      gyro_x = (float)(-imu[1].gy + imu[0].gy*SIN_30_DEG - imu[0].gx*COS_30_DEG + imu[2].gx*COS_30_DEG + imu[2].gy*SIN_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_x_bias;
+      gyro_y = (float)( imu[1].gx - imu[0].gy*COS_30_DEG - imu[0].gx*SIN_30_DEG - imu[2].gx*SIN_30_DEG + imu[2].gy*COS_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_y_bias;
+      gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*IMU_GYRO_SENSITIVITY/3.0f - gyro_z_bias;
+      gyro_z = gyro_z * IMU_GYRO_Z_SCALE;
 
-      accel_x = (float)(-imu[1].ay + imu[0].ay*sin_30 - imu[0].ax*cos_30 + imu[2].ax*cos_30 + imu[2].ay*sin_30)*A_sensitivity/3.0f;
-      accel_y = (float)( imu[1].ax - imu[0].ay*cos_30 - imu[0].ax*sin_30 - imu[2].ax*sin_30 + imu[2].ay*cos_30)*A_sensitivity/3.0f;
-      accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*A_sensitivity/3.0f;
+      accel_x = (float)(-imu[1].ay + imu[0].ay*SIN_30_DEG - imu[0].ax*COS_30_DEG + imu[2].ax*COS_30_DEG + imu[2].ay*SIN_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
+      accel_y = (float)( imu[1].ax - imu[0].ay*COS_30_DEG - imu[0].ax*SIN_30_DEG - imu[2].ax*SIN_30_DEG + imu[2].ay*COS_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
+      accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*IMU_ACCEL_SENSITIVITY/3.0f;
 
       if (fabs(gyro_x) < 0.5) gyro_x = 0.0;
       if (fabs(gyro_y) < 0.5) gyro_y = 0.0;
@@ -840,17 +832,17 @@ void resetBias(){
       imu[j].ay = ((int16_t)(buffer6[9] << 8 | buffer6[8]));
       imu[j].az = ((int16_t)(buffer6[11]<< 8 | buffer6[10]));
     }
-    gyro_x_bias += (float)(-imu[1].gy + imu[0].gy*sin_30 - imu[0].gx*cos_30 + imu[2].gx*cos_30 + imu[2].gy*sin_30);
-    gyro_y_bias += (float)( imu[1].gx - imu[0].gy*cos_30 - imu[0].gx*sin_30 - imu[2].gx*sin_30 + imu[2].gy*cos_30);
+    gyro_x_bias += (float)(-imu[1].gy + imu[0].gy*SIN_30_DEG - imu[0].gx*COS_30_DEG + imu[2].gx*COS_30_DEG + imu[2].gy*SIN_30_DEG);
+    gyro_y_bias += (float)( imu[1].gx - imu[0].gy*COS_30_DEG - imu[0].gx*SIN_30_DEG - imu[2].gx*SIN_30_DEG + imu[2].gy*COS_30_DEG);
     gyro_z_bias += (float)( imu[0].gz + imu[1].gz + imu[2].gz );
     def_az += (float)(imu[0].az + imu[1].az +imu[2].az);
 
     HAL_Delay(1);
   }
-  gyro_x_bias = gyro_x_bias *G_sensitivity * 0.001f / 3.0f;
-  gyro_y_bias = gyro_y_bias *G_sensitivity * 0.001f / 3.0f;
-  gyro_z_bias = gyro_z_bias *G_sensitivity * 0.001f / 3.0f;
-  def_az = def_az * A_sensitivity *0.001f / 3.0f;
+  gyro_x_bias = gyro_x_bias *IMU_GYRO_SENSITIVITY * 0.001f / 3.0f;
+  gyro_y_bias = gyro_y_bias *IMU_GYRO_SENSITIVITY * 0.001f / 3.0f;
+  gyro_z_bias = gyro_z_bias *IMU_GYRO_SENSITIVITY * 0.001f / 3.0f;
+  def_az = def_az * IMU_ACCEL_SENSITIVITY *0.001f / 3.0f;
   accelCVR = 9.80665f/def_az;
   isSettingBias = 0;
 }
@@ -898,9 +890,9 @@ void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, flo
   float _2q0, _2q1, _2q2, _2q3, _4q0, _4q1, _4q2, _8q1, _8q2, q0q0, q1q1, q2q2, q3q3;
 
   // 度/秒 を ラジアン/秒 に変換
-  gx *= CONV;
-  gy *= CONV;
-  gz *= CONV;
+  gx *= DEG_TO_RAD;
+  gy *= DEG_TO_RAD;
+  gz *= DEG_TO_RAD;
 
   // ジャイロによるクォータニオンの変化率
   qDot1 = 0.5f * (-q[1] * gx - q[2] * gy - q[3] * gz);
