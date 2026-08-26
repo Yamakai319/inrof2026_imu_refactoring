@@ -66,9 +66,9 @@ IMUData imu_raw[3];
 uint8_t whoami, whoami2, whoami3;
 float gyro_x, gyro_y, gyro_z;
 float accel_x, accel_y, accel_z;
-double gyro_x_bias = 0.0f;
-double gyro_y_bias = 0.0f;
-double gyro_z_bias = 0.0f;
+float gyro_x_bias = 0.0f;
+float gyro_y_bias = 0.0f;
+float gyro_z_bias = 0.0f;
 
 float beta = 0.1f; //Madgwickフィルタのゲイン
 float roll, pitch, yaw;
@@ -81,9 +81,9 @@ float a_Ez = 0.0f;
 float accelCVR; //mgをm/s^2に変換する時に掛ける
 float vz = 0.0f; //z軸方向の速度
 float z = 0.0f; //デバッグ用高さ
-float current_yaw = 0.0;      // 今回のヨー角 (-180~180)
-float last_yaw = 0.0;         // 前回のヨー角
-float cumulative_yaw = 0.0;    // 累積のヨー角（これが求めたいもの）
+float current_yaw = 0.0f;      // 今回のヨー角 (-180~180)
+float last_yaw = 0.0f;         // 前回のヨー角
+float cumulative_yaw = 0.0f;    // 累積のヨー角（これが求めたいもの）
 bool first_run = true;         // 初回判定用
 //uint8_t txdata1_u8[8] = {0};
 FDCAN_TxHeaderTypeDef TxHeader;
@@ -102,6 +102,7 @@ void interboard_comms_CAN_filter_init(FDCAN_FilterTypeDef *Hfdcan_Filter_Setting
 void interboard_comms_CAN_txheader_init(FDCAN_TxHeaderTypeDef *Htxheader);
 HAL_StatusTypeDef interboard_comms_CAN_RxTxSettings_init(FDCAN_TxHeaderTypeDef *Htxheader);
 HAL_StatusTypeDef CAN_SEND(uint32_t CANID, uint32_t DataLength, uint8_t *txdata, FDCAN_HandleTypeDef *hfdcan, FDCAN_TxHeaderTypeDef *htxheader);
+static int CAN_GetDataLength(uint32_t dlc);
 
 float invSqrt(float x);
 void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, float az, float dt);
@@ -142,60 +143,7 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
 			Error_Handler();
 		}
 
-    int len = 0;
-    switch (RxHeader.DataLength)
-    {
-    case FDCAN_DLC_BYTES_0:
-      len = 0;
-      break;
-    case FDCAN_DLC_BYTES_1:
-      len = 1;
-      break;
-    case FDCAN_DLC_BYTES_2:
-      len = 2;
-      break;
-    case FDCAN_DLC_BYTES_3:
-      len = 3;
-      break;
-    case FDCAN_DLC_BYTES_4:
-      len = 4;
-      break;
-    case FDCAN_DLC_BYTES_5:
-      len = 5;
-      break;
-    case FDCAN_DLC_BYTES_6:
-      len = 6;
-      break;
-    case FDCAN_DLC_BYTES_7:
-      len = 7;
-      break;
-    case FDCAN_DLC_BYTES_8:
-      len = 8;
-      break;
-    case FDCAN_DLC_BYTES_12:
-      len = 12;
-      break;
-    case FDCAN_DLC_BYTES_16:
-      len = 16;
-      break;
-    case FDCAN_DLC_BYTES_20:
-      len = 20;
-      break;
-    case FDCAN_DLC_BYTES_24:
-      len = 24;
-      break;
-    case FDCAN_DLC_BYTES_32:
-      len = 32;
-      break;
-    case FDCAN_DLC_BYTES_48:
-      len = 48;
-      break;
-    case FDCAN_DLC_BYTES_64:
-      len = 64;
-      break;
-    default:
-      break;
-    }
+    int len = CAN_GetDataLength(RxHeader.DataLength);
 
     switch (RxHeader.Identifier)
     {
@@ -296,10 +244,11 @@ int main(void)
     //printf("1:0x%02X,2:0x%02X,3:0x%02X\r\n",whoami,whoami2,whoami3);
     if (loop_count == 100){
       loop_count = 0;
-      printf("%d,%d,%d\r\n",imu_raw[0].gx,imu_raw[1].gy,imu_raw[2].gz);
-      printf("%.2f,%.2f,%.2f\r\n",gyro_x,gyro_y,gyro_z);
+      //printf("%d,%d,%d\r\n",imu_raw[0].gx,imu_raw[1].gy,imu_raw[2].gz);
+      printf("gx:%.2f gy:%.2f gz:%.2f\r\n",gyro_x,gyro_y,gyro_z);
+      printf("ax:%.2f ay:%.2f az:%.2f\r\n",accel_x,accel_y,accel_z);
       //printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
-      printf("%.2f %.2f\r\n",yaw, cumulative_yaw);
+      printf("yaw:%.2f cumulative yaw:%.2f\r\n",yaw, cumulative_yaw);
       //printf("%d %d\r\n",txdata1_u8[6], txdata1_u8[7]);
       //printf("%d\r\n",(int)last_value);
       //printf("%d\r\n",(int)yaw_reset);
@@ -651,6 +600,64 @@ HAL_StatusTypeDef CAN_SEND(uint32_t CANID, uint32_t DataLength, uint8_t *txdata,
   return HAL_OK;
 }
 
+int CAN_GetDataLength(uint32_t dlc){
+  int len = 0;
+  switch (dlc){
+    case FDCAN_DLC_BYTES_0:
+      len = 0;
+      break;
+    case FDCAN_DLC_BYTES_1:
+      len = 1;
+      break;
+    case FDCAN_DLC_BYTES_2:
+      len = 2;
+      break;
+    case FDCAN_DLC_BYTES_3:
+      len = 3;
+      break;
+    case FDCAN_DLC_BYTES_4:
+      len = 4;
+      break;
+    case FDCAN_DLC_BYTES_5:
+      len = 5;
+      break;
+    case FDCAN_DLC_BYTES_6:
+      len = 6;
+      break;
+    case FDCAN_DLC_BYTES_7:
+      len = 7;
+      break;
+    case FDCAN_DLC_BYTES_8:
+      len = 8;
+      break;
+    case FDCAN_DLC_BYTES_12:
+      len = 12;
+      break;
+    case FDCAN_DLC_BYTES_16:
+      len = 16;
+      break;
+    case FDCAN_DLC_BYTES_20:
+      len = 20;
+      break;
+    case FDCAN_DLC_BYTES_24:
+      len = 24;
+      break;
+    case FDCAN_DLC_BYTES_32:
+      len = 32;
+      break;
+    case FDCAN_DLC_BYTES_48:
+      len = 48;
+      break;
+    case FDCAN_DLC_BYTES_64:
+      len = 64;
+      break;
+    default:
+      break;
+  }
+
+  return len;
+}
+
 void resetBias(){
   // 起動時に1000回計測して平均をとる
   isSettingBias = 1;
@@ -733,9 +740,9 @@ void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, flo
 }
 
 void getEulerAngles(){
-  roll  = atan2f(2.0f * (q[0] * q[1] + q[2] * q[3]), 1.0f - 2.0f * (q[1] * q[1] + q[2] * q[2])) * 57.29578f;
-  pitch = asinf(2.0f * (q[0] * q[2] - q[3] * q[1])) * 57.29578f;
-  yaw   = atan2f(2.0f * (q[0] * q[3] + q[1] * q[2]), 1.0f - 2.0f * (q[2] * q[2] + q[3] * q[3])) * 57.29578f;
+  roll  = atan2f(2.0f * (q[0] * q[1] + q[2] * q[3]), 1.0f - 2.0f * (q[1] * q[1] + q[2] * q[2])) * RAD_TO_DEG;
+  pitch = asinf(2.0f * (q[0] * q[2] - q[3] * q[1])) * RAD_TO_DEG;
+  yaw   = atan2f(2.0f * (q[0] * q[3] + q[1] * q[2]), 1.0f - 2.0f * (q[2] * q[2] + q[3] * q[3])) * RAD_TO_DEG;
 }
 
 void update_cumulative_yaw(){

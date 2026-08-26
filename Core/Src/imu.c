@@ -55,11 +55,11 @@ void INIT_IMU(int i){
   /*センサの初期化*/
   LSM6_Write(0x12, 0x44, i); // CTRL3: reboot,BDU有効化,アドレス自動インクリメント有効化
   /*ジャイロの初期化*/
-  LSM6_Write(0x15, 0x04, i); // CTRL6: FS=±2000dps
-  LSM6_Write(0x11, 0x06, i); // CTRL2: ODR=120Hz
+  LSM6_Write(0x15, 0x02, i); // CTRL6: FS=±500dps
+  LSM6_Write(0x11, 0x09, i); // CTRL2: ODR=960Hz
   /*加速度の初期化*/
-  LSM6_Write(0x17, 0x03, i); // CTRL8: FS=±16g
-  LSM6_Write(0x10, 0x06, i); // CTRL1: ODR=120Hz
+  LSM6_Write(0x17, 0x01, i); // CTRL8: FS=±4g
+  LSM6_Write(0x10, 0x09, i); // CTRL1: ODR=960Hz
 }
 
 void IMU_ReadAll(IMUData imu[3]){
@@ -74,6 +74,7 @@ void IMU_ReadAll(IMUData imu[3]){
         imu[i].az = ((int16_t)(buffer[11] << 8 | buffer[10]));
     }  
 }
+
 void IMU_CalculateCombined(IMUData imu[3], 
     float *gyro_x, float *gyro_y, float *gyro_z, 
     float *accel_x, float *accel_y, float *accel_z, 
@@ -88,7 +89,7 @@ void IMU_CalculateCombined(IMUData imu[3],
     *accel_y = (float)( imu[1].ax - imu[0].ay*COS_30_DEG - imu[0].ax*SIN_30_DEG - imu[2].ax*SIN_30_DEG + imu[2].ay*COS_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
     *accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*IMU_ACCEL_SENSITIVITY/3.0f;
 
-    //if (fabsf(gyro_x) < 0.5f) gyro_x = 0.0f;
-    //if (fabsf(gyro_y) < 0.5f) gyro_y = 0.0f;
-    //if (fabsf(gyro_z) < 0.5f) gyro_z = 0.0f;
+    if (fabsf(*gyro_x) < 0.5f) *gyro_x = 0.0f;
+    if (fabsf(*gyro_y) < 0.5f) *gyro_y = 0.0f;
+    if (fabsf(*gyro_z) < 0.5f) *gyro_z = 0.0f;
 }
