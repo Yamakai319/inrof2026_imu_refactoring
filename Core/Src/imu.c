@@ -75,20 +75,20 @@ void IMU_ReadAll(IMUData imu[3]){
     }  
 }
 void IMU_CalculateCombined(IMUData imu[3], 
-    float gyro_x, float gyro_y, float gyro_z, 
-    float accel_x, float accel_y, float accel_z, 
+    float *gyro_x, float *gyro_y, float *gyro_z, 
+    float *accel_x, float *accel_y, float *accel_z, 
     float gyro_x_bias, float gyro_y_bias, float gyro_z_bias)
 {
-    gyro_x = (float)(-imu[1].gy + imu[0].gy*SIN_30_DEG - imu[0].gx*COS_30_DEG + imu[2].gx*COS_30_DEG + imu[2].gy*SIN_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_x_bias;
-    gyro_y = (float)( imu[1].gx - imu[0].gy*COS_30_DEG - imu[0].gx*SIN_30_DEG - imu[2].gx*SIN_30_DEG + imu[2].gy*COS_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_y_bias;
-    gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*IMU_GYRO_SENSITIVITY/3.0f - gyro_z_bias;
-    gyro_z = gyro_z * IMU_GYRO_Z_SCALE;
+    *gyro_x = (float)(-imu[1].gy + imu[0].gy*SIN_30_DEG - imu[0].gx*COS_30_DEG + imu[2].gx*COS_30_DEG + imu[2].gy*SIN_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_x_bias;
+    *gyro_y = (float)( imu[1].gx - imu[0].gy*COS_30_DEG - imu[0].gx*SIN_30_DEG - imu[2].gx*SIN_30_DEG + imu[2].gy*COS_30_DEG)*IMU_GYRO_SENSITIVITY/3.0f - gyro_y_bias;
+    *gyro_z = (float)( imu[0].gz + imu[1].gz + imu[2].gz )*IMU_GYRO_SENSITIVITY/3.0f - gyro_z_bias;
+    *gyro_z *= IMU_GYRO_Z_SCALE;
 
-    accel_x = (float)(-imu[1].ay + imu[0].ay*SIN_30_DEG - imu[0].ax*COS_30_DEG + imu[2].ax*COS_30_DEG + imu[2].ay*SIN_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
-    accel_y = (float)( imu[1].ax - imu[0].ay*COS_30_DEG - imu[0].ax*SIN_30_DEG - imu[2].ax*SIN_30_DEG + imu[2].ay*COS_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
-    accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*IMU_ACCEL_SENSITIVITY/3.0f;
+    *accel_x = (float)(-imu[1].ay + imu[0].ay*SIN_30_DEG - imu[0].ax*COS_30_DEG + imu[2].ax*COS_30_DEG + imu[2].ay*SIN_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
+    *accel_y = (float)( imu[1].ax - imu[0].ay*COS_30_DEG - imu[0].ax*SIN_30_DEG - imu[2].ax*SIN_30_DEG + imu[2].ay*COS_30_DEG)*IMU_ACCEL_SENSITIVITY/3.0f;
+    *accel_z = (float)( imu[0].az + imu[1].az + imu[2].az )*IMU_ACCEL_SENSITIVITY/3.0f;
 
-    if (fabsf(gyro_x) < 0.5f) gyro_x = 0.0f;
-    if (fabsf(gyro_y) < 0.5f) gyro_y = 0.0f;
-    if (fabsf(gyro_z) < 0.5f) gyro_z = 0.0f;
+    //if (fabsf(gyro_x) < 0.5f) gyro_x = 0.0f;
+    //if (fabsf(gyro_y) < 0.5f) gyro_y = 0.0f;
+    //if (fabsf(gyro_z) < 0.5f) gyro_z = 0.0f;
 }

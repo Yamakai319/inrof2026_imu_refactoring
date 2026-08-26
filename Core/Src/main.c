@@ -277,7 +277,7 @@ int main(void)
       loop_count++;
 
       IMU_ReadAll(imu_raw);
-      IMU_CalculateCombined(imu_raw, gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, gyro_x_bias, gyro_y_bias, gyro_z_bias);
+      IMU_CalculateCombined(imu_raw, &gyro_x, &gyro_y, &gyro_z, &accel_x, &accel_y, &accel_z, gyro_x_bias, gyro_y_bias, gyro_z_bias);
       MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
       getEulerAngles(); //デバッグ用
       update_cumulative_yaw();
@@ -296,6 +296,8 @@ int main(void)
     //printf("1:0x%02X,2:0x%02X,3:0x%02X\r\n",whoami,whoami2,whoami3);
     if (loop_count == 100){
       loop_count = 0;
+      printf("%d,%d,%d\r\n",imu_raw[0].gx,imu_raw[1].gy,imu_raw[2].gz);
+      printf("%.2f,%.2f,%.2f\r\n",gyro_x,gyro_y,gyro_z);
       //printf("%.4f,%.4f,%.4f,%.4f\r\n", q[0], q[1], q[2], -q[3]);
       printf("%.2f %.2f\r\n",yaw, cumulative_yaw);
       //printf("%d %d\r\n",txdata1_u8[6], txdata1_u8[7]);
