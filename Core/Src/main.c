@@ -236,7 +236,8 @@ int main(void)
       float_to_u8(txdata_q, txdata1_u8, 1);
       CAN_SEND(CAN_ID_YAW_FEEDBACK, FDCAN_DLC_BYTES_4, txdata1_u8, &hfdcan1, &TxHeader);
     }
-    
+
+    /* 以下実走時はすべてコメントアウトすること！ */
     if (loop_count == 100){
       loop_count = 0;
       //printf("%d,%d,%d\r\n",imu_raw[0].gx,imu_raw[1].gy,imu_raw[2].gz);
@@ -659,6 +660,7 @@ void resetBias(){
   gyro_x_bias = 0.0f;
   gyro_y_bias = 0.0f;
   gyro_z_bias = 0.0f;
+  def_az = 0.0f;
 
   for(int i=0; i<1000; i++) {
     IMU_ReadAll(imu_raw);
