@@ -10,12 +10,12 @@ typedef struct {
 } IMUData;
 
 /*変数の宣言*/
-extern volatile IMUData imu[3];
 
 /*関数のプロトタイプ宣言*/
 void LSM6_Write(uint8_t reg, uint8_t data, int port);
 void LSM6_ReadMulti(uint8_t reg, uint8_t* pData, uint16_t size, int port);
 uint8_t LSM6_Read(uint8_t reg, int port);
+void readWhoami(int index);
 void INIT_IMU(int i);
 void IMU_ReadAll(IMUData imu[3]);
 void IMU_CalculateCombined(IMUData imu[3], 

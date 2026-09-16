@@ -9,8 +9,8 @@
 extern SPI_HandleTypeDef hspi2;
 GPIO_TypeDef* const IMU_CS_PORTS[3] = {IMU1_CS_GPIO_Port, IMU2_CS_GPIO_Port, IMU3_CS_GPIO_Port};
 const uint16_t IMU_CS_PINS[3]       = {IMU1_CS_Pin, IMU2_CS_Pin, IMU3_CS_Pin};
-volatile IMUData imu[3];
 
+//レジスタ書き込み関数
 void LSM6_Write(uint8_t reg, uint8_t data, int i)
 {
     GPIO_TypeDef* PORT = IMU_CS_PORTS[i-1];
@@ -22,7 +22,8 @@ void LSM6_Write(uint8_t reg, uint8_t data, int i)
     HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_SET);
 }
 
-uint8_t LSM6_Read(uint8_t reg, int i) { //1つのIMUから単独で読み出す場合
+//1つのレジスタから読み出す関数
+uint8_t LSM6_Read(uint8_t reg, int i) {
     GPIO_TypeDef* PORT = IMU_CS_PORTS[i-1];
     uint16_t PIN = IMU_CS_PINS[i-1];
     uint8_t tx = reg | 0x80;  // Read（MSB=1）
@@ -36,6 +37,7 @@ uint8_t LSM6_Read(uint8_t reg, int i) { //1つのIMUから単独で読み出す�
     return rx;
 }
 
+//連続した複数のレジスタから読み出す関数
 void LSM6_ReadMulti(uint8_t reg, uint8_t* pData, uint16_t size, int i) {
     GPIO_TypeDef* PORT = IMU_CS_PORTS[i-1];
     uint16_t PIN = IMU_CS_PINS[i-1];
@@ -51,17 +53,28 @@ void LSM6_ReadMulti(uint8_t reg, uint8_t* pData, uint16_t size, int i) {
     HAL_GPIO_WritePin(PORT, PIN, GPIO_PIN_SET);
 }
 
-void INIT_IMU(int i){
-  /*センサの初期化*/
-  LSM6_Write(0x12, 0x44, i); // CTRL3: reboot,BDU有効化,アドレス自動インクリメント有効化
-  /*ジャイロの初期化*/
-  LSM6_Write(0x15, 0x02, i); // CTRL6: FS=±500dps
-  LSM6_Write(0x11, 0x09, i); // CTRL2: ODR=960Hz
-  /*加速度の初期化*/
-  LSM6_Write(0x17, 0x01, i); // CTRL8: FS=±4g
-  LSM6_Write(0x10, 0x09, i); // CTRL1: ODR=960Hz
+void readWhoami(int index){
+  uint8_t whoami = LSM6_Read(0x0F, index);
+  if (0x70 == whoami){
+    printf("IMU %d: Connected", index);
+  } else {
+    printf("IMU %d: Connection Error", index);
+  }
 }
 
+//IMUの初期化関数
+void INIT_IMU(int index){
+  /*センサの初期化*/
+  LSM6_Write(0x12, 0x44, index); // CTRL3: reboot,BDU有効化,アドレス自動インクリメント有効化
+  /*ジャイロの初期化*/
+  LSM6_Write(0x15, 0x02, index); // CTRL6: FS=±500dps
+  LSM6_Write(0x11, 0x09, index); // CTRL2: ODR=960Hz
+  /*加速度の初期化*/
+  LSM6_Write(0x17, 0x01, index); // CTRL8: FS=±4g
+  LSM6_Write(0x10, 0x09, index); // CTRL1: ODR=960Hz
+}
+
+//3つのIMUからジャイロと加速度のローデータを取得する関数
 void IMU_ReadAll(IMUData imu[3]){
     uint8_t buffer[12];
     for (int i=0; i<3; i++){

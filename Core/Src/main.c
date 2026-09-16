@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "macro.h"
 #include "imu.h"
+#include "data_convert.h"
 #include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
@@ -63,7 +64,6 @@ volatile uint8_t yaw_reset = 0; //yawのリセットフラグ
 
 uint8_t last_value = 0;
 IMUData imu_raw[3];
-uint8_t whoami, whoami2, whoami3;
 float gyro_x, gyro_y, gyro_z;
 float accel_x, accel_y, accel_z;
 float gyro_x_bias = 0.0f;
@@ -110,8 +110,6 @@ void getEulerAngles();
 void resetBias();
 void update_cumulative_yaw();
 void reset_cumulative_angle();
-void u8_to_int(uint8_t *req, int32_t *des, uint32_t uint8_len);
-void float_to_u8(float *req, uint8_t *des, uint32_t float_len);
 
 /* USER CODE END PFP */
 
@@ -205,9 +203,11 @@ int main(void)
 
   if (HAL_OK != interboard_comms_CAN_RxTxSettings_init(&TxHeader)) Error_Handler();
   //dev_ctx.handle = &my_i2c_handle;
-  INIT_IMU(1);
-  INIT_IMU(2);
-  INIT_IMU(3);
+  
+  for (int i=1; i<=3; i++){
+    readWhoami(i);
+    INIT_IMU(i);
+  }
 
   resetBias();
   //printf("bias resetted\r\n");
@@ -237,11 +237,6 @@ int main(void)
       CAN_SEND(CAN_ID_YAW_FEEDBACK, FDCAN_DLC_BYTES_4, txdata1_u8, &hfdcan1, &TxHeader);
     }
     
-    //whoami = LSM6_Read(0x0F,1);
-    //whoami2 = LSM6_Read(0x0F,2);
-    //whoami3 = LSM6_Read(0x0F,3);
-    //printf("serial\n");
-    //printf("1:0x%02X,2:0x%02X,3:0x%02X\r\n",whoami,whoami2,whoami3);
     if (loop_count == 100){
       loop_count = 0;
       //printf("%d,%d,%d\r\n",imu_raw[0].gx,imu_raw[1].gy,imu_raw[2].gz);
@@ -664,24 +659,18 @@ void resetBias(){
   gyro_x_bias = 0.0f;
   gyro_y_bias = 0.0f;
   gyro_z_bias = 0.0f;
+
   for(int i=0; i<1000; i++) {
-    uint8_t buffer6[12];
-    for (int j=0; j<3; j++) {
-      LSM6_ReadMulti(0x22, buffer6, 12, j+1); // IMU:一括読み出し
-      imu[j].gx = ((int16_t)(buffer6[1] << 8 | buffer6[0]));
-      imu[j].gy = ((int16_t)(buffer6[3] << 8 | buffer6[2]));
-      imu[j].gz = ((int16_t)(buffer6[5] << 8 | buffer6[4]));
-      imu[j].ax = ((int16_t)(buffer6[7] << 8 | buffer6[6]));
-      imu[j].ay = ((int16_t)(buffer6[9] << 8 | buffer6[8]));
-      imu[j].az = ((int16_t)(buffer6[11]<< 8 | buffer6[10]));
-    }
-    gyro_x_bias += (float)(-imu[1].gy + imu[0].gy*SIN_30_DEG - imu[0].gx*COS_30_DEG + imu[2].gx*COS_30_DEG + imu[2].gy*SIN_30_DEG);
-    gyro_y_bias += (float)( imu[1].gx - imu[0].gy*COS_30_DEG - imu[0].gx*SIN_30_DEG - imu[2].gx*SIN_30_DEG + imu[2].gy*COS_30_DEG);
-    gyro_z_bias += (float)( imu[0].gz + imu[1].gz + imu[2].gz );
-    def_az += (float)(imu[0].az + imu[1].az +imu[2].az);
+    IMU_ReadAll(imu_raw);
+
+    gyro_x_bias += (float)(-imu_raw[1].gy + imu_raw[0].gy*SIN_30_DEG - imu_raw[0].gx*COS_30_DEG + imu_raw[2].gx*COS_30_DEG + imu_raw[2].gy*SIN_30_DEG);
+    gyro_y_bias += (float)( imu_raw[1].gx - imu_raw[0].gy*COS_30_DEG - imu_raw[0].gx*SIN_30_DEG - imu_raw[2].gx*SIN_30_DEG + imu_raw[2].gy*COS_30_DEG);
+    gyro_z_bias += (float)( imu_raw[0].gz + imu_raw[1].gz + imu_raw[2].gz );
+    def_az += (float)(imu_raw[0].az + imu_raw[1].az +imu_raw[2].az);
 
     HAL_Delay(1);
   }
+
   gyro_x_bias = gyro_x_bias *IMU_GYRO_SENSITIVITY * 0.001f / 3.0f;
   gyro_y_bias = gyro_y_bias *IMU_GYRO_SENSITIVITY * 0.001f / 3.0f;
   gyro_z_bias = gyro_z_bias *IMU_GYRO_SENSITIVITY * 0.001f / 3.0f;
