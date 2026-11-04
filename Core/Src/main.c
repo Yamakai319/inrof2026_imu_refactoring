@@ -72,7 +72,7 @@ float gyro_z_bias = 0.0f;
 float beta = 0.1f; //Madgwickフィルタのゲイン
 float roll, pitch, yaw;
 float dt = 0.001f;
-float preTime, now;
+uint32_t preTime, now;
 bool isSettingBias = 1;
 float def_az = 0.0f;
 float a_Ex = 0.0f;
@@ -85,6 +85,7 @@ float current_yaw = 0.0f;      // 今回のヨー角 (-180~180)
 float last_yaw = 0.0f;         // 前回のヨー角
 float cumulative_yaw = 0.0f;    // 累積のヨー角（これが求めたいもの）
 bool first_run = true;         // 初回判定用
+bool has_previous_imu_sample = false;
 //uint8_t txdata1_u8[8] = {0};
 FDCAN_TxHeaderTypeDef TxHeader;
 /* USER CODE END PV */
@@ -161,6 +162,11 @@ void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
     }
 	}
 }
+
+static uint32_t micros(void)
+{
+    return __HAL_TIM_GET_COUNTER(&htim2);
+}
 /* USER CODE END 0 */
 
 /**
@@ -215,7 +221,9 @@ int main(void)
   //printf("bias resetted\r\n");
   //__HAL_SPI_CLEAR_OVRFLAG(&hspi2);
 
-  HAL_TIM_Base_Start_IT(&htim6);
+  HAL_TIM_Base_Start(&htim2); //NO Interrupt
+  preTime = micros();
+  HAL_TIM_Base_Start_IT(&htim6); //Interrupt
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -226,13 +234,20 @@ int main(void)
       loop_count++;
 
       IMU_CalculateCombined(imu_raw, &gyro_x, &gyro_y, &gyro_z, &accel_x, &accel_y, &accel_z, gyro_x_bias, gyro_y_bias, gyro_z_bias);
-      now = HAL_GetTick();
-      dt = (now-preTime) * 0.001;
-      preTime = now;
-      MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
-      getEulerAngles(); //デバッグ用
-      update_cumulative_yaw();
-      //compensateGravity(accel_x, accel_y, accel_z);//重力補正
+      now = micros();
+
+      if (!has_previous_imu_sample) {
+        preTime = now;
+        has_previous_imu_sample = true;
+      } else {
+        dt = (float)(now - preTime) * 1.0e-6f;
+        preTime = now;
+
+        MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
+        getEulerAngles(); //デバッグ用
+        update_cumulative_yaw(); // ここで既存のfirst_runが基準yawを初期化
+        //compensateGravity(accel_x, accel_y, accel_z);//重力補正
+      }
 
       float txdata_q[1] = {cumulative_yaw};
       uint8_t txdata1_u8[4] = {0};
