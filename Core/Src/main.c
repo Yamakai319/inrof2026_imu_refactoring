@@ -43,8 +43,6 @@
 /* USER CODE BEGIN PM */
 #define R 30//mm  //radious of wheel
 #define PPR 2000 //pulses per revolution
-#define SPI_BUFFER_SIZE 13 // アドレス(1) + データ(12)
-
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -220,11 +218,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if (imu_data_ready){
-      imu_data_ready = 0;
+    if (IMU_TakeSampleReady()) {
       loop_count++;
 
-      IMU_ReadAll(imu_raw);
       IMU_CalculateCombined(imu_raw, &gyro_x, &gyro_y, &gyro_z, &accel_x, &accel_y, &accel_z, gyro_x_bias, gyro_y_bias, gyro_z_bias);
       MadgwickAHRSupdateIMU(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z, dt);
       getEulerAngles(); //デバッグ用
@@ -237,9 +233,15 @@ int main(void)
       CAN_SEND(CAN_ID_YAW_FEEDBACK, FDCAN_DLC_BYTES_4, txdata1_u8, &hfdcan1, &TxHeader);
     }
 
+    if (imu_data_ready && !IMU_IsDmaBusy()){
+      imu_data_ready = 0;
+      IMU_StartReadAllDMA(imu_raw);
+    }
+
     /* 以下実走時はすべてコメントアウトすること！ */
     if (loop_count == 100){
       loop_count = 0;
+      printf("test\r\n");
       //printf("%d,%d,%d\r\n",imu_raw[0].gx,imu_raw[1].gy,imu_raw[2].gz);
       printf("gx:%.2f gy:%.2f gz:%.2f\r\n",gyro_x,gyro_y,gyro_z);
       printf("ax:%.2f ay:%.2f az:%.2f\r\n",accel_x,accel_y,accel_z);

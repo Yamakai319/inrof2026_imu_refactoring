@@ -4,11 +4,24 @@
 #include <stdint.h>
 #include <main.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <math.h>
 
 extern SPI_HandleTypeDef hspi2;
 GPIO_TypeDef* const IMU_CS_PORTS[3] = {IMU1_CS_GPIO_Port, IMU2_CS_GPIO_Port, IMU3_CS_GPIO_Port};
 const uint16_t IMU_CS_PINS[3]       = {IMU1_CS_Pin, IMU2_CS_Pin, IMU3_CS_Pin};
+
+//DMA用
+static uint8_t spi_tx[SPI_FRAME_SIZE] = { 0xA2 };  // 0x22 | Read bit
+static uint8_t spi_rx[IMU_COUNT][SPI_FRAME_SIZE];
+
+static volatile uint8_t dma_imu_index;
+static volatile bool dma_busy;
+static volatile bool sample_ready;
+static IMUData *dma_destination;
+
+static HAL_StatusTypeDef start_imu_dma(uint8_t index);
+static void unpack_imu_frame(const uint8_t *frame, IMUData *destination);
 
 //レジスタ書き込み関数
 void LSM6_Write(uint8_t reg, uint8_t data, int i)
@@ -105,4 +118,96 @@ void IMU_CalculateCombined(IMUData imu[3],
     if (fabsf(*gyro_x) < 0.5f) *gyro_x = 0.0f;
     if (fabsf(*gyro_y) < 0.5f) *gyro_y = 0.0f;
     if (fabsf(*gyro_z) < 0.5f) *gyro_z = 0.0f;
+}
+
+bool IMU_StartReadAllDMA(IMUData destination[3])
+{
+    if (dma_busy) {
+        return false;
+    }
+
+    dma_destination = destination;
+    dma_imu_index = 0;
+    dma_busy = true;
+    sample_ready = false;
+
+    if (start_imu_dma(dma_imu_index) != HAL_OK) {
+        dma_busy = false;
+        dma_destination = NULL;
+        return false;
+    }
+
+    return true;
+}
+
+bool IMU_IsDmaBusy(void)
+{
+    return dma_busy;
+}
+
+bool IMU_TakeSampleReady(void)
+{
+    if (!sample_ready) {
+        return false;
+    }
+
+    sample_ready = false;
+    return true;
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi != &hspi2) {
+        return;
+    }
+
+    HAL_GPIO_WritePin(IMU_CS_PORTS[dma_imu_index], IMU_CS_PINS[dma_imu_index], GPIO_PIN_SET);
+    unpack_imu_frame(&spi_rx[dma_imu_index][1], &dma_destination[dma_imu_index]);
+
+    if (++dma_imu_index < IMU_COUNT) {
+        if (start_imu_dma(dma_imu_index) != HAL_OK) {
+            dma_busy = false;
+            dma_destination = NULL;
+        }
+    } else {
+        dma_busy = false;
+        sample_ready = true;
+        dma_destination = NULL;
+    }
+}
+
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+{
+    if ((hspi != &hspi2) || !dma_busy) {
+        return;
+    }
+
+    HAL_GPIO_WritePin(IMU_CS_PORTS[dma_imu_index], IMU_CS_PINS[dma_imu_index], GPIO_PIN_SET);
+    dma_busy = false;
+    sample_ready = false;
+    dma_destination = NULL;
+}
+
+static HAL_StatusTypeDef start_imu_dma(uint8_t index)
+{
+    HAL_GPIO_WritePin(IMU_CS_PORTS[index], IMU_CS_PINS[index], GPIO_PIN_RESET);
+
+    HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_DMA(
+        &hspi2, spi_tx, spi_rx[index], SPI_FRAME_SIZE);
+
+    if (status != HAL_OK) {
+        HAL_GPIO_WritePin(IMU_CS_PORTS[index], IMU_CS_PINS[index], GPIO_PIN_SET);
+    }
+
+    return status;
+}
+
+static void unpack_imu_frame(const uint8_t *frame, IMUData *destination)
+{
+    destination->gx = (int16_t)(((uint16_t)frame[1] << 8) | frame[0]);
+    destination->gy = (int16_t)(((uint16_t)frame[3] << 8) | frame[2]);
+    destination->gz = (int16_t)(((uint16_t)frame[5] << 8) | frame[4]);
+    destination->ax = (int16_t)(((uint16_t)frame[7] << 8) | frame[6]);
+    destination->ay = (int16_t)(((uint16_t)frame[9] << 8) | frame[8]);
+    destination->az = (int16_t)(((uint16_t)frame[11] << 8) | frame[10]);
 }

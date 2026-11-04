@@ -14,6 +14,10 @@
 #define DEG_TO_RAD 0.017453292519943295f //度からラジアンへの変換時にかける
 #define RAD_TO_DEG 57.29577951308232f //ラジアンから度への変換時にかける
 
+//DMA
+#define IMU_COUNT 3
+#define SPI_FRAME_SIZE 13
+
 /*math*/
 #define COS_30_DEG 0.8660254037844386f
 #define SIN_30_DEG 0.5f
