@@ -82,6 +82,8 @@ void INIT_IMU(int index){
   /*ジャイロの初期化*/
   LSM6_Write(0x15, 0x02, index); // CTRL6: FS=±500dps
   LSM6_Write(0x11, 0x09, index); // CTRL2: ODR=960Hz
+  LSM6_Write(0x16, 0x01, index); //enable LPF
+
   /*加速度の初期化*/
   LSM6_Write(0x17, 0x01, index); // CTRL8: FS=±4g
   LSM6_Write(0x10, 0x09, index); // CTRL1: ODR=960Hz
